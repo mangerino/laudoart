@@ -301,14 +301,21 @@
       <span id="sync-filename" style="color:var(--accent2);font-weight:600"></span>
       <span style="flex:1"></span>
       <span id="sync-last" style="font-size:11px"></span>
-      <button class="sync-btn" onclick="triggerCarregarRede()" title="Carregar dados mais recentes da pasta de rede" style="color:var(--accent2);font-weight:600">📂 Carregar da rede</button>
-      <button class="sync-btn" onclick="salvarNaRede()" title="Baixar arquivo para salvar na pasta de rede" style="color:var(--green);font-weight:600">💾 Salvar na rede</button>
       <button class="sync-btn" id="btn-gdrive-save" onclick="gdriveSalvarDB()" title="Salvar no Google Drive" style="color:#4285F4;font-weight:600">☁️ Salvar Drive</button>
       <button class="sync-btn" id="btn-gdrive-load" onclick="gdriveCarregarDB()" title="Carregar última versão do Google Drive" style="color:#4285F4">☁️ Carregar Drive</button>
-      <button class="sync-btn" onclick="exportJSON()" title="Baixar backup local">⬇ Backup</button>
-      <button class="sync-btn" onclick="document.getElementById('import-json-input').click()" title="Importar backup">📂 Importar</button>
+      <div style="position:relative;display:inline-block" id="backup-menu-wrap">
+        <button class="sync-btn" onclick="toggleBackupMenu()" title="Opções de Backup e Rede" style="color:var(--text2);font-weight:600">🗄 Backup ▾</button>
+        <div id="backup-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:8px;min-width:200px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.4);padding:6px 0">
+          <button onclick="triggerCarregarRede();toggleBackupMenu()" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--accent2);font-size:12px;padding:8px 16px;cursor:pointer;font-weight:600" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">📂 Carregar da rede</button>
+          <button onclick="salvarNaRede();toggleBackupMenu()" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--green);font-size:12px;padding:8px 16px;cursor:pointer;font-weight:600" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">💾 Salvar na rede</button>
+          <hr style="border:none;border-top:1px solid var(--border);margin:4px 0">
+          <button onclick="exportJSON();toggleBackupMenu()" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text);font-size:12px;padding:8px 16px;cursor:pointer" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">⬇ Backup local</button>
+          <button onclick="document.getElementById('import-json-input').click();toggleBackupMenu()" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text);font-size:12px;padding:8px 16px;cursor:pointer" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">📂 Importar backup</button>
+          <hr style="border:none;border-top:1px solid var(--border);margin:4px 0">
+          <button onclick="openModal('modal-sync-config');toggleBackupMenu()" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text2);font-size:12px;padding:8px 16px;cursor:pointer" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">⚙ Config. Rede</button>
+        </div>
+      </div>
       <input type="file" id="import-json-input" accept=".json" style="display:none" onchange="importJSON(this)">
-      <button class="sync-btn" onclick="openModal('modal-sync-config')" title="Configurar sincronização em rede">⚙ Rede</button>
     </div>
 
     <!-- BANNER CARREGAR DA REDE -->
@@ -995,6 +1002,21 @@ function saveSyncConfigSimple(){
 function hideBanner(){ const b=document.getElementById('reconnect-banner'); if(b) b.classList.add('hidden'); }
 function dispensarBanner(){ hideBanner(); }
 
+// ── Menu Backup dropdown ────────────────────────────────
+function toggleBackupMenu(){
+  const d=document.getElementById('backup-dropdown');
+  if(!d) return;
+  const open = d.style.display==='block';
+  d.style.display = open ? 'none' : 'block';
+}
+document.addEventListener('click', function(e){
+  const wrap=document.getElementById('backup-menu-wrap');
+  if(wrap && !wrap.contains(e.target)){
+    const d=document.getElementById('backup-dropdown');
+    if(d) d.style.display='none';
+  }
+});
+
 // ── Status bar ─────────────────────────────────────────
 function setSyncStatus(color, msg, sub){
   const dot=document.getElementById('sync-dot');
@@ -1397,19 +1419,33 @@ function applyFilters(){
 }
 
 function applyFiltersFrom(ignoredParam){
-  // Filtra e renderiza a tabela do dashboard usando TODOS os registros do DB
+  // Filtra e renderiza a tabela do dashboard
   const status  = document.getElementById('f-status')?.value||'';
   const unidade = document.getElementById('f-unidade')?.value||'';
   const tipo    = document.getElementById('f-tipo')?.value||'';
   const search  = document.getElementById('global-search')?.value.toLowerCase()||'';
 
-  // Usa DB completo, calculando status em copias rasas
-  let data = DB.map(r=>({...r, _status: r.desmobilizado ? 'DESMOBILIZADO' : calcStatus(r)}));
+  // Quando há filtro de status, usa apenas o ART mais recente por equipamento
+  // (consistente com os cards do dashboard). Sem filtro, usa todos os registros.
+  let source;
+  if(status){
+    source = getLatestPerEquipment().map(r=>({...r, _status: r.desmobilizado ? 'DESMOBILIZADO' : calcStatus(r)}));
+    // Inclui desmobilizados se filtro específico
+    if(status === 'DESMOBILIZADO'){
+      const desmob = DB.filter(r=>r.desmobilizado).map(r=>({...r, _status:'DESMOBILIZADO'}));
+      // deduplicar por chave
+      const seen = new Set(source.map(r=>[r.tipo,r.unidade,r.frota_caminhao||r.codigo_projeto||r.id].join('§')));
+      source = [...source, ...desmob.filter(r=>!seen.has([r.tipo,r.unidade,r.frota_caminhao||r.codigo_projeto||r.id].join('§')))];
+    }
+  } else {
+    source = DB.map(r=>({...r, _status: r.desmobilizado ? 'DESMOBILIZADO' : calcStatus(r)}));
+  }
+
+  let data = source;
 
   if(status === 'DESMOBILIZADO'){
-    data = data.filter(r=>r.desmobilizado);
+    data = data.filter(r=>r.desmobilizado||r._status==='DESMOBILIZADO');
   } else {
-    // Por padrão, oculta desmobilizados da tabela (a menos que filtro explícito)
     data = data.filter(r=>!r.desmobilizado);
     if(status) data = data.filter(r=>r._status===status);
   }
@@ -2193,8 +2229,7 @@ function finishInit() {
   populateFilters();
   requestAnimationFrame(()=>{ renderDashboard(); });
 
-  const _banner = document.getElementById('reconnect-banner');
-  if(_banner) _banner.classList.remove('hidden');
+  // Banner de rede removido conforme solicitação (desnecessário após carregar arquivo)
   setSyncStatus('orange', 'Clique em 📂 Carregar da rede para sincronizar', `Dados locais: ${DB.length} registros`);
 }
 
