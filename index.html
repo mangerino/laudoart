@@ -91,6 +91,14 @@
   .table-header h3{font-size:15px}
   .filter-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   select.filter{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;outline:none;cursor:pointer}
+  .msel{position:relative}
+  .msel-btn{width:100%;text-align:left;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;outline:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .msel-caret{color:var(--text2);font-size:11px}
+  .msel-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;max-height:240px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:20;padding:6px}
+  .msel-panel.open{display:block}
+  .msel-panel label{display:flex;align-items:center;gap:8px;padding:6px 8px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--text);border-radius:6px;cursor:pointer;white-space:nowrap}
+  .msel-panel label:hover{background:var(--surface2,rgba(255,255,255,.05))}
+  .msel-panel input[type=checkbox]{cursor:pointer}
   select.filter:focus{border-color:var(--accent)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{text-align:left;padding:10px 14px;background:var(--surface2);color:var(--text2);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;cursor:pointer;user-select:none}
@@ -396,18 +404,23 @@
         <div class="form-grid" style="margin-bottom:20px">
           <div class="form-group">
             <label>Unidade</label>
-            <select id="rel-unidade" class="filter" style="width:100%">
-              <option value="">Todas</option>
-            </select>
+            <div class="msel" id="rel-unidade-msel">
+              <button type="button" class="msel-btn" onclick="mselToggle('rel-unidade-msel')"><span id="rel-unidade-msel-label">Todas</span><span class="msel-caret">▾</span></button>
+              <div class="msel-panel" id="rel-unidade-msel-panel"></div>
+            </div>
           </div>
           <div class="form-group">
             <label>Status</label>
-            <select id="rel-status" class="filter" style="width:100%">
-              <option value="">Todos (ativos)</option>
-              <option>VÁLIDO</option><option>VENCER 90D</option>
-              <option>VENCER 30D</option><option>VENCIDO</option>
-              <option value="DESMOBILIZADO">📤 Desmobilizados</option>
-            </select>
+            <div class="msel" id="rel-status-msel">
+              <button type="button" class="msel-btn" onclick="mselToggle('rel-status-msel')"><span id="rel-status-msel-label">Todos (ativos)</span><span class="msel-caret">▾</span></button>
+              <div class="msel-panel" id="rel-status-msel-panel">
+                <label><input type="checkbox" value="VÁLIDO" onchange="mselUpdate('rel-status-msel')"> VÁLIDO</label>
+                <label><input type="checkbox" value="VENCER 90D" onchange="mselUpdate('rel-status-msel')"> VENCER 90D</label>
+                <label><input type="checkbox" value="VENCER 30D" onchange="mselUpdate('rel-status-msel')"> VENCER 30D</label>
+                <label><input type="checkbox" value="VENCIDO" onchange="mselUpdate('rel-status-msel')"> VENCIDO</label>
+                <label><input type="checkbox" value="DESMOBILIZADO" onchange="mselUpdate('rel-status-msel')"> 📤 Desmobilizados</label>
+              </div>
+            </div>
           </div>
           <div class="form-group">
             <label>Vencimento de</label>
@@ -1017,6 +1030,41 @@ document.addEventListener('click', function(e){
   }
 });
 
+// ── Multi-select dropdown (checkboxes) — usado nos filtros de Relatório ──
+function mselBuildOptions(mselId, values, allLabel){
+  const panel=document.getElementById(mselId+'-panel');
+  if(!panel) return;
+  const prev = mselGetValues(mselId);
+  panel.innerHTML = values.map(v=>`<label><input type="checkbox" value="${v}" onchange="mselUpdate('${mselId}')"${prev.includes(v)?' checked':''}> ${v}</label>`).join('');
+  mselUpdate(mselId, allLabel);
+}
+function mselToggle(mselId){
+  const panel=document.getElementById(mselId+'-panel');
+  if(!panel) return;
+  const willOpen = !panel.classList.contains('open');
+  document.querySelectorAll('.msel-panel.open').forEach(p=>p.classList.remove('open'));
+  if(willOpen) panel.classList.add('open');
+}
+function mselGetValues(mselId){
+  const panel=document.getElementById(mselId+'-panel');
+  if(!panel) return [];
+  return [...panel.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+}
+function mselUpdate(mselId, allLabel){
+  const vals = mselGetValues(mselId);
+  const label = document.getElementById(mselId+'-label');
+  const dflt = allLabel || (mselId==='rel-status-msel' ? 'Todos (ativos)' : 'Todas');
+  if(label) label.textContent = vals.length===0 ? dflt : (vals.length===1 ? vals[0] : `${vals.length} selecionados`);
+}
+document.addEventListener('click', function(e){
+  document.querySelectorAll('.msel').forEach(m=>{
+    if(!m.contains(e.target)){
+      const p=m.querySelector('.msel-panel');
+      if(p) p.classList.remove('open');
+    }
+  });
+});
+
 // ── Status bar ─────────────────────────────────────────
 function setSyncStatus(color, msg, sub){
   const dot=document.getElementById('sync-dot');
@@ -1084,13 +1132,14 @@ function uniques(field){ return [...new Set(DB.map(r=>r[field]).filter(Boolean))
 function populateFilters(){
   const uns = uniques('unidade');
   const tipos = uniques('tipo');
-  ['f-unidade','eq-f-unidade','rel-unidade'].forEach(id=>{
+  ['f-unidade','eq-f-unidade'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     const cur = el.value;
     el.innerHTML = `<option value="">Todas as unidades</option>`;
     uns.forEach(u=>{ el.innerHTML += `<option${cur===u?' selected':''}>${u}</option>`; });
   });
+  mselBuildOptions('rel-unidade-msel', uns, 'Todas');
   const ft = document.getElementById('f-tipo');
   if(ft){ ft.innerHTML=`<option value="">Todos os tipos</option>`; tipos.forEach(t=>{ ft.innerHTML+=`<option>${t}</option>`; }); }
 }
@@ -1715,14 +1764,23 @@ function showDetalhe(id){
 //  RELATÓRIO
 // ═══════════════════════════════════════════════════════
 function generateReport(){
-  const unidade=document.getElementById('rel-unidade')?.value||'';
-  const status=document.getElementById('rel-status')?.value||'';
+  const unidades=mselGetValues('rel-unidade-msel');
+  const statuses=mselGetValues('rel-status-msel');
   const de=document.getElementById('rel-de')?.value||'';
   const ate=document.getElementById('rel-ate')?.value||'';
 
-  let data;
-  if(status === 'DESMOBILIZADO'){
-    // Apenas desmobilizados (último registro de cada equipamento desmobilizado)
+  const wantDesmob = statuses.includes('DESMOBILIZADO');
+  const activeStatuses = statuses.filter(s=>s!=='DESMOBILIZADO');
+  const wantActive = statuses.length===0 || activeStatuses.length>0;
+
+  let data=[];
+  if(wantActive){
+    const ativos=getLatestPerEquipment();
+    ativos.forEach(r=>r._status=calcStatus(r));
+    data = data.concat(activeStatuses.length ? ativos.filter(r=>activeStatuses.includes(r._status)) : ativos);
+  }
+  if(wantDesmob){
+    // Desmobilizados (último registro de cada equipamento desmobilizado)
     const dmap = new Map();
     DB.filter(r=>r.desmobilizado).forEach(r=>{
       const id1 = r.frota_caminhao || r.codigo_projeto || r.id;
@@ -1731,28 +1789,10 @@ function generateReport(){
       const ex = dmap.get(key);
       if(!ex || r.data_emissao > ex.data_emissao) dmap.set(key, r);
     });
-    data = [...dmap.values()].map(r=>({...r, _status:'DESMOBILIZADO'}));
-  } else if(status === 'TODOS'){
-    // Ativos + desmobilizados
-    const all = getLatestPerEquipment();
-    all.forEach(r=>r._status=calcStatus(r));
-    const dmap = new Map();
-    DB.filter(r=>r.desmobilizado).forEach(r=>{
-      const id1 = r.frota_caminhao || r.codigo_projeto || r.id;
-      const id2 = r.frota_equip || r.nome_projeto || '';
-      const key = [r.tipo, r.unidade, id1, id2, r.modelo].join('§');
-      const ex = dmap.get(key);
-      if(!ex || r.data_emissao > ex.data_emissao) dmap.set(key, r);
-    });
-    const desm = [...dmap.values()].map(r=>({...r, _status:'DESMOBILIZADO'}));
-    data = [...all, ...desm];
-  } else {
-    data=getLatestPerEquipment();
-    data.forEach(r=>r._status=calcStatus(r));
-    if(status) data=data.filter(r=>r._status===status);
+    data = data.concat([...dmap.values()].map(r=>({...r, _status:'DESMOBILIZADO'})));
   }
 
-  if(unidade) data=data.filter(r=>r.unidade===unidade);
+  if(unidades.length) data=data.filter(r=>unidades.includes(r.unidade));
   if(de) data=data.filter(r=>r.vencimento>=de);
   if(ate) data=data.filter(r=>r.vencimento<=ate);
   data.sort((a,b)=>{
@@ -1795,14 +1835,34 @@ function generateReport(){
 //  EXPORT EXCEL (SheetJS)
 // ═══════════════════════════════════════════════════════
 function getFilteredData(){
-  const unidade=document.getElementById('rel-unidade')?.value||'';
-  const status=document.getElementById('rel-status')?.value||'';
+  const unidades=mselGetValues('rel-unidade-msel');
+  const statuses=mselGetValues('rel-status-msel');
   const de=document.getElementById('rel-de')?.value||'';
   const ate=document.getElementById('rel-ate')?.value||'';
-  let data=getLatestPerEquipment();
-  data.forEach(r=>r._status=calcStatus(r));
-  if(unidade) data=data.filter(r=>r.unidade===unidade);
-  if(status) data=data.filter(r=>r._status===status);
+
+  const wantDesmob = statuses.includes('DESMOBILIZADO');
+  const activeStatuses = statuses.filter(s=>s!=='DESMOBILIZADO');
+  const wantActive = statuses.length===0 || activeStatuses.length>0;
+
+  let data=[];
+  if(wantActive){
+    const ativos=getLatestPerEquipment();
+    ativos.forEach(r=>r._status=calcStatus(r));
+    data = data.concat(activeStatuses.length ? ativos.filter(r=>activeStatuses.includes(r._status)) : ativos);
+  }
+  if(wantDesmob){
+    const dmap = new Map();
+    DB.filter(r=>r.desmobilizado).forEach(r=>{
+      const id1 = r.frota_caminhao || r.codigo_projeto || r.id;
+      const id2 = r.frota_equip || r.nome_projeto || '';
+      const key = [r.tipo, r.unidade, id1, id2, r.modelo].join('§');
+      const ex = dmap.get(key);
+      if(!ex || r.data_emissao > ex.data_emissao) dmap.set(key, r);
+    });
+    data = data.concat([...dmap.values()].map(r=>({...r, _status:'DESMOBILIZADO'})));
+  }
+
+  if(unidades.length) data=data.filter(r=>unidades.includes(r.unidade));
   if(de) data=data.filter(r=>r.vencimento>=de);
   if(ate) data=data.filter(r=>r.vencimento<=ate);
   return data.sort((a,b)=>a.vencimento.localeCompare(b.vencimento));
@@ -1837,7 +1897,7 @@ function exportXLSX(modo){
         r.frota_caminhao||'', r.frota_equip||'',
         r.modelo||'', r.marca||'', r.engenheiro||'',
         r.num_laudo||'', r.num_art||'',
-        r.data_emissao, r.vencimento,
+        fmtDate(r.data_emissao), fmtDate(r.vencimento),
         dias, r._status, r.obs||''
       ];
     });
@@ -1981,7 +2041,7 @@ function exportCSV(){
   const data = getFilteredData();
   if(!data.length){ toast('Nenhum dado para exportar','error'); return; }
   const headers=['Unidade','Localidade','Tipo','Caminhão','Frota Caminhão','Frota Equipamento','Modelo','Marca','Engenheiro','Nº Laudo','Nº ART','Data Emissão','Vencimento','Status','Observações'];
-  const rows=data.map(r=>[r.unidade,r.localidade,r.tipo,r.caminhao,r.frota_caminhao,r.frota_equip,r.modelo,r.marca,r.engenheiro,r.num_laudo,r.num_art,r.data_emissao,r.vencimento,r._status,r.obs].map(v=>`"${(v||'').replace(/"/g,'""')}"`));
+  const rows=data.map(r=>[r.unidade,r.localidade,r.tipo,r.caminhao,r.frota_caminhao,r.frota_equip,r.modelo,r.marca,r.engenheiro,r.num_laudo,r.num_art,fmtDate(r.data_emissao),fmtDate(r.vencimento),r._status,r.obs].map(v=>`"${(v||'').replace(/"/g,'""')}"`));
   const csv=[headers.join(','),...rows.map(r=>r.join(','))].join('\n');
   const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
